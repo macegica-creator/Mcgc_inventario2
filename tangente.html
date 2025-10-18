@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <title>Gráfica de la tangente</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin: 0; display:flex; flex-direction:column; align-items:center; gap:12px; padding:18px; background:#f7f8fb; color:#111 }
+        h1 { margin:0 0 6px 0; font-size:18px }
+        #controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap }
+        label { font-size:13px }
+        canvas { background:#fff; border:1px solid #ddd; box-shadow:0 1px 3px rgba(0,0,0,0.06); width:100%; max-width:960px; height:480px; }
+        .small { font-size:12px; color:#444 }
+        input[type=range] { width:220px }
+    </style>
+</head>
+<body>
+    <h1>Gráfica de la tangente</h1>
+    <div id="controls">
+        <label>Zoom X (rango = ± n·π): <span id="zoomVal">3</span>π
+            <input id="zoom" type="range" min="0.5" max="8" step="0.1" value="3">
+        </label>
+        <label>Escala Y (límites ±): <span id="yVal">5</span>
+            <input id="yscale" type="range" min="1" max="20" step="0.5" value="5">
+        </label>
+        <button id="reset">Restablecer</button>
+        <div class="small">Se muestran asíntotas verticales donde tan(x) no está definida.</div>
+    </div>
+
+    <canvas id="c"></canvas>
+
+    <script>
+        // GitHub Copilot
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d');
+        const zoomInput = document.getElementById('zoom');
+        const yscaleInput = document.getElementById('yscale');
+        const zoomVal = document.getElementById('zoomVal');
+        const yVal = document.getElementById('yVal');
+        const resetBtn = document.getElementById('reset');
+
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            const w = Math.min(960, window.innerWidth - 40);
+            const h = Math.min(720, Math.max(360, window.innerHeight - 220));
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+            canvas.width = Math.round(w * dpr);
+            canvas.height = Math.round(h * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function drawGrid(xMin, xMax, yMin, yMax) {
+            const W = canvas.clientWidth, H = canvas.clientHeight;
+            ctx.clearRect(0,0,W,H);
+            ctx.save();
+            // light grid
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 1;
+            // vertical grid (at multiples of π/2)
+            const stepX = Math.PI/2;
+            let firstK = Math.ceil(xMin / stepX);
+            for (let k = firstK; k*stepX <= xMax; k++) {
+                const x = mapX(k*stepX, xMin, xMax, W);
+                ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+            }
+            // horizontal grid
+            const stepY = Math.max(1, Math.round((yMax - yMin)/10));
+            for (let y = Math.ceil(yMin/stepY)*stepY; y <= yMax; y += stepY) {
+                const yy = mapY(y, yMin, yMax, H);
+                ctx.beginPath(); ctx.moveTo(0,yy); ctx.lineTo(W,yy); ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function drawAxes(xMin, xMax, yMin, yMax) {
+            const W = canvas.clientWidth, H = canvas.clientHeight;
+            ctx.save();
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1.5;
+            // x-axis (y=0)
+            if (yMin < 0 && yMax > 0) {
+                const y0 = mapY(0,yMin,yMax,H);
+                ctx.beginPath(); ctx.moveTo(0,y0); ctx.lineTo(W,y0); ctx.stroke();
+            }
+            // y-axis (x=0)
+            if (xMin < 0 && xMax > 0) {
+                const x0 = mapX(0,xMin,xMax,W);
+                ctx.beginPath(); ctx.moveTo(x0,0); ctx.lineTo(x0,H); ctx.stroke();
+            }
+            // tick labels on x axis (multiples of π/2) and y ticks
+            ctx.fillStyle = '#111';
+            ctx.font = '12px system-ui, Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            const stepX = Math.PI/2;
+            for (let k = Math.ceil(xMin/stepX); k*stepX <= xMax; k++) {
+                const xv = k*stepX;
+                const x = mapX(xv,xMin,xMax,W);
+                const label = formatPi(xv);
+                ctx.fillText(label, x, (yMin<0&&yMax>0) ? mapY(0,yMin,yMax,H)+6 : H-18);
+            }
+            // y ticks
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            const stepY = Math.max(1, Math.round((yMax - yMin)/10));
+            for (let y = Math.ceil(yMin/stepY)*stepY; y <= yMax; y += stepY) {
+                const yy = mapY(y,yMin,yMax,H);
+                ctx.fillText(y.toString(), (xMin<0&&xMax>0) ? mapX(0,xMin,xMax,W)-6 : 40, yy);
+            }
+            ctx.restore();
+        }
+
+        function formatPi(x) {
+            const n = Math.round(x / (Math.PI/2)); // multiples of π/2
+            if (n === 0) return '0';
+            const sign = n < 0 ? '-' : '';
+            const m = Math.abs(n);
+            if (m % 2 === 0) {
+                // multiple of π
+                const k = m/2;
+                if (k === 1) return sign + 'π';
+                return sign + k + 'π';
+            } else {
+                // odd multiple of π/2
+                if (m === 1) return sign + 'π/2';
+                return sign + m + 'π/2';
+            }
+        }
+
+        function mapX(x, xMin, xMax, W) { return ( (x - xMin) / (xMax - xMin) ) * W; }
+        function mapY(y, yMin, yMax, H) { return H - ( (y - yMin) / (yMax - yMin) ) * H; }
+
+        function drawAsymptotes(xMin, xMax, yMin, yMax) {
+            const W = canvas.clientWidth, H = canvas.clientHeight;
+            ctx.save();
+            ctx.strokeStyle = 'rgba(200,30,30,0.6)';
+            ctx.setLineDash([6,6]);
+            ctx.lineWidth = 1.2;
+            const kStart = Math.ceil((xMin - Math.PI/2) / Math.PI);
+            for (let k = kStart; ; k++) {
+                const ax = Math.PI/2 + k*Math.PI;
+                if (ax > xMax) break;
+                if (ax >= xMin && ax <= xMax) {
+                    const x = mapX(ax, xMin, xMax, W);
+                    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+                }
+            }
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
+        function plotTan(xMin, xMax, yMin, yMax) {
+            const W = canvas.clientWidth, H = canvas.clientHeight;
+            const samples = Math.max(800, W*2);
+            ctx.save();
+            ctx.strokeStyle = '#0a66ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            let move = true;
+            let prevY = null;
+            for (let i = 0; i <= samples; i++) {
+                const t = i / samples;
+                const x = xMin + t * (xMax - xMin);
+                const y = Math.tan(x);
+                // if value exceeds visible range or jumps (asymptote), break path
+                if (!isFinite(y) || Math.abs(y) > yMax*1.2 || (prevY !== null && Math.abs(y - prevY) > yMax*0.9)) {
+                    move = true;
+                } else {
+                    const px = mapX(x,xMin,xMax,W);
+                    const py = mapY(y,yMin,yMax,H);
+                    if (move) {
+                        ctx.moveTo(px,py);
+                        move = false;
+                    } else {
+                        ctx.lineTo(px,py);
+                    }
+                }
+                prevY = y;
+            }
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        function draw() {
+            const zoom = parseFloat(zoomInput.value);
+            const yscale = parseFloat(yscaleInput.value);
+            zoomVal.textContent = zoom;
+            yVal.textContent = yscale;
+            const xMin = -zoom * Math.PI;
+            const xMax =  zoom * Math.PI;
+            const yMin = -yscale;
+            const yMax =  yscale;
+            drawGrid(xMin,xMax,yMin,yMax);
+            drawAxes(xMin,xMax,yMin,yMax);
+            drawAsymptotes(xMin,xMax,yMin,yMax);
+            plotTan(xMin,xMax,yMin,yMax);
+        }
+
+        // events
+        zoomInput.addEventListener('input', draw);
+        yscaleInput.addEventListener('input', draw);
+        resetBtn.addEventListener('click', () => {
+            zoomInput.value = 3;
+            yscaleInput.value = 5;
+            draw();
+        });
+
+        // initialize
+        resizeCanvas();
+        // high-DPI redraw after fonts load
+        window.requestAnimationFrame(draw);
+    </script>
+</body>
+</html>
